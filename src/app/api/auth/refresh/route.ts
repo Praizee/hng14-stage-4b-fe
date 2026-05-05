@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
-const BASE_URL = "https://whisperbox.koyeb.app";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://whisperbox.koyeb.app";
 
 export async function POST() {
   const cookieStore = await cookies();

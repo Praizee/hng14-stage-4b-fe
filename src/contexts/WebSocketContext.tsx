@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -41,6 +42,8 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectDelayRef = useRef(1000);
   const intentionalCloseRef = useRef(false);
+  // Ref so scheduleProactiveRefresh can call connect without a forward reference
+  const connectRef = useRef<(() => void) | null>(null);
 
   const [connected, setConnected] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
@@ -60,8 +63,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
             access_token: string;
           };
           api.setAccessToken(access_token);
-          // Reconnect with new token
-          connect();
+          connectRef.current?.();
         }
       } catch {
         // Will reconnect via 4001 close code
@@ -133,7 +135,7 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
               access_token: string;
             };
             api.setAccessToken(access_token);
-            connect();
+            connectRef.current?.();
             return;
           }
         } catch {
@@ -146,13 +148,17 @@ export function WebSocketProvider({ children }: { children: React.ReactNode }) {
       // Any other close: reconnect with exponential backoff (max 30s)
       const delay = reconnectDelayRef.current;
       reconnectDelayRef.current = Math.min(delay * 2, 30_000);
-      reconnectTimerRef.current = setTimeout(connect, delay);
+      reconnectTimerRef.current = setTimeout(() => connectRef.current?.(), delay);
     };
 
     ws.onerror = () => {
       // onclose fires after onerror, so reconnect logic is handled there
     };
-  }, [logout]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [logout]);
+
+  useLayoutEffect(() => {
+    connectRef.current = connect;
+  });
 
   // Connect when user is authenticated and keys are loaded
   useEffect(() => {

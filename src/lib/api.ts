@@ -9,7 +9,7 @@ import type {
   UserPublicInfo,
 } from "@/types";
 
-const BASE_URL = "https://whisperbox.koyeb.app";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "https://whisperbox.koyeb.app";
 
 // In-memory token store — never written to localStorage
 let accessToken: string | null = null;
