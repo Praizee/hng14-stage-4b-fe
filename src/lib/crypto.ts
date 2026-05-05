@@ -1,7 +1,6 @@
 import type { EncryptedPayload } from "@/types";
 
-// ── Base64 helpers ──────────────────────────────────────────────────────────
-
+// Base64 helpers
 export function bufferToBase64(buffer: ArrayBuffer): string {
   return btoa(String.fromCharCode(...new Uint8Array(buffer)));
 }
@@ -19,8 +18,7 @@ export function bufferToHex(buffer: ArrayBuffer): string {
     .join("");
 }
 
-// ── RSA-OAEP key pair generation ────────────────────────────────────────────
-
+// RSA-OAEP key pair generation
 export async function generateKeyPair(): Promise<CryptoKeyPair> {
   return crypto.subtle.generateKey(
     {
@@ -30,7 +28,7 @@ export async function generateKeyPair(): Promise<CryptoKeyPair> {
       hash: "SHA-256",
     },
     true,
-    ["encrypt", "decrypt"]
+    ["encrypt", "decrypt"],
   );
 }
 
@@ -45,12 +43,11 @@ export async function importPublicKey(b64: string): Promise<CryptoKey> {
     base64ToBuffer(b64),
     { name: "RSA-OAEP", hash: "SHA-256" },
     true,
-    ["encrypt"]
+    ["encrypt"],
   );
 }
 
-// ── PBKDF2 key derivation ───────────────────────────────────────────────────
-
+// PBKDF2 key derivation
 export function generateSalt(): string {
   const salt = crypto.getRandomValues(new Uint8Array(16));
   return bufferToBase64(salt.buffer);
@@ -58,7 +55,7 @@ export function generateSalt(): string {
 
 async function deriveWrappingKey(
   password: string,
-  saltB64: string
+  saltB64: string,
 ): Promise<CryptoKey> {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
@@ -66,7 +63,7 @@ async function deriveWrappingKey(
     enc.encode(password),
     "PBKDF2",
     false,
-    ["deriveKey"]
+    ["deriveKey"],
   );
   return crypto.subtle.deriveKey(
     {
@@ -78,26 +75,30 @@ async function deriveWrappingKey(
     keyMaterial,
     { name: "AES-KW", length: 256 },
     false,
-    ["wrapKey", "unwrapKey"]
+    ["wrapKey", "unwrapKey"],
   );
 }
 
-// ── AES-KW wrap / unwrap ────────────────────────────────────────────────────
-
+// AES-KW wrap / unwrap
 export async function wrapPrivateKey(
   privateKey: CryptoKey,
   password: string,
-  saltB64: string
+  saltB64: string,
 ): Promise<string> {
   const wrappingKey = await deriveWrappingKey(password, saltB64);
-  const wrapped = await crypto.subtle.wrapKey("pkcs8", privateKey, wrappingKey, "AES-KW");
+  const wrapped = await crypto.subtle.wrapKey(
+    "pkcs8",
+    privateKey,
+    wrappingKey,
+    "AES-KW",
+  );
   return bufferToBase64(wrapped);
 }
 
 export async function unwrapPrivateKey(
   wrappedB64: string,
   password: string,
-  saltB64: string
+  saltB64: string,
 ): Promise<CryptoKey> {
   const wrappingKey = await deriveWrappingKey(password, saltB64);
   return crypto.subtle.unwrapKey(
@@ -107,16 +108,15 @@ export async function unwrapPrivateKey(
     "AES-KW",
     { name: "RSA-OAEP", hash: "SHA-256" },
     true,
-    ["decrypt"]
+    ["decrypt"],
   );
 }
 
-// ── AES-GCM message encryption ──────────────────────────────────────────────
-
+// AES-GCM message encryption
 export async function encryptMessage(
   plaintext: string,
   recipientPublicKey: CryptoKey,
-  senderPublicKey: CryptoKey
+  senderPublicKey: CryptoKey,
 ): Promise<EncryptedPayload> {
   const enc = new TextEncoder();
 
@@ -124,7 +124,7 @@ export async function encryptMessage(
   const messageKey = await crypto.subtle.generateKey(
     { name: "AES-GCM", length: 256 },
     true,
-    ["encrypt", "decrypt"]
+    ["encrypt", "decrypt"],
   );
 
   // Random 96-bit IV
@@ -134,7 +134,7 @@ export async function encryptMessage(
   const ciphertext = await crypto.subtle.encrypt(
     { name: "AES-GCM", iv },
     messageKey,
-    enc.encode(plaintext)
+    enc.encode(plaintext),
   );
 
   // Export the raw AES key to wrap it
@@ -144,14 +144,14 @@ export async function encryptMessage(
   const encryptedKey = await crypto.subtle.encrypt(
     { name: "RSA-OAEP" },
     recipientPublicKey,
-    rawKey
+    rawKey,
   );
 
   // Encrypt the AES key for ourselves (so we can re-read our sent messages)
   const encryptedKeyForSelf = await crypto.subtle.encrypt(
     { name: "RSA-OAEP" },
     senderPublicKey,
-    rawKey
+    rawKey,
   );
 
   return {
@@ -165,7 +165,7 @@ export async function encryptMessage(
 export async function decryptMessage(
   payload: EncryptedPayload,
   privateKey: CryptoKey,
-  isSender: boolean
+  isSender: boolean,
 ): Promise<string> {
   // Use the correct wrapped key depending on who is reading
   const encryptedKeyB64 = isSender
@@ -176,7 +176,7 @@ export async function decryptMessage(
   const rawKey = await crypto.subtle.decrypt(
     { name: "RSA-OAEP" },
     privateKey,
-    base64ToBuffer(encryptedKeyB64)
+    base64ToBuffer(encryptedKeyB64),
   );
 
   // Import the decrypted AES key
@@ -185,24 +185,32 @@ export async function decryptMessage(
     rawKey,
     { name: "AES-GCM", length: 256 },
     false,
-    ["decrypt"]
+    ["decrypt"],
   );
 
   // Decrypt the ciphertext
   const plaintext = await crypto.subtle.decrypt(
     { name: "AES-GCM", iv: base64ToBuffer(payload.iv) },
     messageKey,
-    base64ToBuffer(payload.ciphertext)
+    base64ToBuffer(payload.ciphertext),
   );
 
   return new TextDecoder().decode(plaintext);
 }
 
-// ── Key fingerprint ─────────────────────────────────────────────────────────
-
+// Key fingerprint
 export async function getKeyFingerprint(publicKeyB64: string): Promise<string> {
-  const hash = await crypto.subtle.digest("SHA-256", base64ToBuffer(publicKeyB64));
+  const hash = await crypto.subtle.digest(
+    "SHA-256",
+    base64ToBuffer(publicKeyB64),
+  );
   const hex = bufferToHex(hash);
   // Format as groups of 4 for readability: ABCD EFGH ...
-  return hex.match(/.{1,4}/g)?.join(" ").toUpperCase() ?? hex;
+  return (
+    hex
+      .match(/.{1,4}/g)
+      ?.join(" ")
+      .toUpperCase() ?? hex
+  );
 }
+

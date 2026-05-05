@@ -87,3 +87,27 @@ export interface ValidationError {
 export interface ApiError {
   detail: string | ValidationError[];
 }
+
+// WebSocket event types
+export interface WsMessageReceive {
+  event: "message.receive";
+  id: string;
+  from_user_id: string;
+  to_user_id: string;
+  payload: EncryptedPayload;
+  created_at: string;
+  delivered?: boolean;
+}
+
+export interface WsPresence {
+  event: "user.online" | "user.offline";
+  user_id: string;
+}
+
+export interface WsError {
+  event: "error";
+  detail: string;
+}
+
+export type WsEvent = WsMessageReceive | WsPresence | WsError;
+

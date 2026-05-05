@@ -7,9 +7,10 @@ import {
   useEffect,
   useState,
 } from "react";
-import type { ConversationSummary } from "@/types";
+import type { ConversationSummary, WsMessageReceive } from "@/types";
 import * as api from "@/lib/api";
 import { useAuth } from "./AuthContext";
+import { useWebSocket } from "./WebSocketContext";
 
 interface ConversationsContextValue {
   conversations: ConversationSummary[];
@@ -22,6 +23,7 @@ const ConversationsContext = createContext<ConversationsContextValue | null>(nul
 
 export function ConversationsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { subscribe } = useWebSocket();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -37,13 +39,12 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
     }
   }, []);
 
-  // Update or insert a conversation (called when a new message arrives)
   const upsert = useCallback((convo: ConversationSummary) => {
     setConversations((prev) => {
       const idx = prev.findIndex((c) => c.user_id === convo.user_id);
       if (idx === -1) return [convo, ...prev];
       const next = [...prev];
-      next[idx] = convo;
+      next[idx] = { ...next[idx], ...convo };
       return next.sort((a, b) => {
         if (!a.last_message_at) return 1;
         if (!b.last_message_at) return -1;
@@ -51,6 +52,23 @@ export function ConversationsProvider({ children }: { children: React.ReactNode 
       });
     });
   }, []);
+
+  // Subscribe to WS events — update conversation list when messages arrive
+  useEffect(() => {
+    return subscribe((event) => {
+      if (event.event !== "message.receive") return;
+      const msg = event as WsMessageReceive;
+      // The "other" user is whoever isn't us
+      const otherId = msg.from_user_id === user?.id ? msg.to_user_id : msg.from_user_id;
+      // Bump last_message_at; display_name will be filled from existing entry or refreshed
+      upsert({
+        user_id: otherId,
+        display_name: "",   // will be merged with existing entry in upsert
+        username: "",
+        last_message_at: msg.created_at,
+      });
+    });
+  }, [subscribe, upsert, user?.id]);
 
   useEffect(() => {
     if (user) refresh();

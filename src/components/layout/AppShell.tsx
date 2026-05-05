@@ -3,6 +3,7 @@
 import { useAuth } from "@/contexts/AuthContext";
 import { useCrypto } from "@/contexts/CryptoContext";
 import { ConversationsProvider } from "@/contexts/ConversationsContext";
+import { WebSocketProvider } from "@/contexts/WebSocketContext";
 import { UnlockScreen } from "./UnlockScreen";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -32,8 +33,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <ConversationsProvider>
-      <div className="flex h-full">{children}</div>
-    </ConversationsProvider>
+    <WebSocketProvider>
+      <ConversationsProvider>
+        <div className="flex h-full">{children}</div>
+      </ConversationsProvider>
+    </WebSocketProvider>
   );
 }

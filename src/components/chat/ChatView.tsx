@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { DecryptedMessage, Message } from "@/types";
+import type { DecryptedMessage, Message, WsMessageReceive } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCrypto } from "@/contexts/CryptoContext";
 import { useConversations } from "@/contexts/ConversationsContext";
+import { useWebSocket } from "@/contexts/WebSocketContext";
 import * as api from "@/lib/api";
 import { ChatHeader } from "./ChatHeader";
 import { MessageList } from "./MessageList";
@@ -34,6 +35,7 @@ export function ChatView({ userId, nameHint }: Props) {
   const { user } = useAuth();
   const { decrypt, encrypt, publicKeyB64 } = useCrypto();
   const { upsert } = useConversations();
+  const { sendMessage: wsSend, subscribe } = useWebSocket();
 
   const [messages, setMessages] = useState<DecryptedMessage[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +49,7 @@ export function ChatView({ userId, nameHint }: Props) {
       setLoading(true);
       try {
         const raw = await api.getMessages(userId, 50, before);
-        // API returns newest-first, reverse for display
+        // API returns newest-first; reverse for chronological display
         const reversed = [...raw].reverse();
         const decrypted = await Promise.all(
           reversed.map((m) => tryDecrypt(m, currentUserId, decrypt))
@@ -60,7 +62,7 @@ export function ChatView({ userId, nameHint }: Props) {
         setHasMore(raw.length === 50);
         if (raw.length > 0) setCursor(raw[raw.length - 1].created_at);
       } catch {
-        // leave existing messages
+        // leave existing messages intact
       } finally {
         setLoading(false);
       }
@@ -68,11 +70,44 @@ export function ChatView({ userId, nameHint }: Props) {
     [userId, currentUserId, decrypt]
   );
 
+  // Reload when conversation changes
   useEffect(() => {
     setMessages([]);
     setCursor(undefined);
     loadMessages();
   }, [userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Subscribe to incoming WS messages for this conversation
+  useEffect(() => {
+    return subscribe(async (event) => {
+      if (event.event !== "message.receive") return;
+      const msg = event as WsMessageReceive;
+
+      // Only handle messages in this conversation
+      const isThisConvo =
+        (msg.from_user_id === userId && msg.to_user_id === currentUserId) ||
+        (msg.from_user_id === currentUserId && msg.to_user_id === userId);
+      if (!isThisConvo) return;
+
+      // Avoid duplicates (WS may flush undelivered messages on connect)
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === msg.id)) return prev;
+        return prev; // will be added after decrypt below
+      });
+
+      const isSender = msg.from_user_id === currentUserId;
+      const decrypted = await tryDecrypt(
+        { ...msg, delivered: msg.delivered ?? true },
+        currentUserId,
+        decrypt
+      );
+
+      setMessages((prev) => {
+        if (prev.some((m) => m.id === decrypted.id)) return prev;
+        return [...prev, decrypted];
+      });
+    });
+  }, [subscribe, userId, currentUserId, decrypt]);
 
   const handleLoadMore = useCallback(() => {
     if (!loading && hasMore && cursor) loadMessages(cursor);
@@ -82,24 +117,42 @@ export function ChatView({ userId, nameHint }: Props) {
     async (text: string) => {
       if (!user || !publicKeyB64) return;
 
-      // Fetch recipient's public key
       const recipientPublicKeyB64 = await api.getPublicKey(userId);
       const payload = await encrypt(text, recipientPublicKeyB64);
 
-      const sent = await api.sendMessage({ to: userId, payload });
-      const decrypted: DecryptedMessage = { ...sent, text };
+      // Prefer WebSocket; fall back to REST if disconnected
+      const sentViaWs = wsSend(userId, payload);
 
-      setMessages((prev) => [...prev, decrypted]);
+      let sentAt = new Date().toISOString();
+      if (!sentViaWs) {
+        const sent = await api.sendMessage({ to: userId, payload });
+        sentAt = sent.created_at;
 
-      // Update conversation list with new timestamp
+        // Add REST-sent message to local state
+        const decrypted: DecryptedMessage = { ...sent, text };
+        setMessages((prev) => [...prev, decrypted]);
+      } else {
+        // Optimistic update for WS-sent messages
+        const optimistic: DecryptedMessage = {
+          id: `optimistic-${Date.now()}`,
+          from_user_id: currentUserId,
+          to_user_id: userId,
+          payload,
+          delivered: false,
+          created_at: sentAt,
+          text,
+        };
+        setMessages((prev) => [...prev, optimistic]);
+      }
+
       upsert({
         user_id: userId,
         display_name: nameHint ?? userId,
         username: "",
-        last_message_at: sent.created_at,
+        last_message_at: sentAt,
       });
     },
-    [user, userId, publicKeyB64, encrypt, upsert, nameHint]
+    [user, userId, publicKeyB64, encrypt, wsSend, upsert, currentUserId, nameHint]
   );
 
   return (

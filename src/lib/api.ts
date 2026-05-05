@@ -26,12 +26,11 @@ export function clearAccessToken(): void {
   accessToken = null;
 }
 
-// ── Core fetch wrapper ──────────────────────────────────────────────────────
-
+// Core fetch wrapper
 async function request<T>(
   path: string,
   options: RequestInit = {},
-  skipAuth = false
+  skipAuth = false,
 ): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -49,7 +48,10 @@ async function request<T>(
     const newToken = await refreshAccessToken();
     if (newToken) {
       headers["Authorization"] = `Bearer ${newToken}`;
-      const retried = await fetch(`${BASE_URL}${path}`, { ...options, headers });
+      const retried = await fetch(`${BASE_URL}${path}`, {
+        ...options,
+        headers,
+      });
       if (!retried.ok) throw await parseError(retried);
       return retried.json() as Promise<T>;
     }
@@ -69,7 +71,9 @@ async function parseError(res: Response): Promise<Error> {
     const body = await res.json();
     if (typeof body.detail === "string") return new Error(body.detail);
     if (Array.isArray(body.detail)) {
-      return new Error(body.detail.map((e: { msg: string }) => e.msg).join(", "));
+      return new Error(
+        body.detail.map((e: { msg: string }) => e.msg).join(", "),
+      );
     }
   } catch {
     // fall through
@@ -77,8 +81,7 @@ async function parseError(res: Response): Promise<Error> {
   return new Error(`Request failed (${res.status})`);
 }
 
-// ── Token refresh ───────────────────────────────────────────────────────────
-
+// Token refresh
 async function refreshAccessToken(): Promise<string | null> {
   // Deduplicate concurrent refresh attempts
   if (refreshPromise) return refreshPromise;
@@ -91,7 +94,7 @@ async function refreshAccessToken(): Promise<string | null> {
         clearAccessToken();
         return null;
       }
-      const { access_token } = await res.json() as { access_token: string };
+      const { access_token } = (await res.json()) as { access_token: string };
       setAccessToken(access_token);
       return access_token;
     } finally {
@@ -102,20 +105,27 @@ async function refreshAccessToken(): Promise<string | null> {
   return refreshPromise;
 }
 
-// ── Auth endpoints ──────────────────────────────────────────────────────────
-
+// Auth endpoints
 export async function register(body: RegisterRequest): Promise<AuthResponse> {
-  return request<AuthResponse>("/auth/register", {
-    method: "POST",
-    body: JSON.stringify(body),
-  }, true);
+  return request<AuthResponse>(
+    "/auth/register",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+    true,
+  );
 }
 
 export async function login(body: LoginRequest): Promise<AuthResponse> {
-  return request<AuthResponse>("/auth/login", {
-    method: "POST",
-    body: JSON.stringify(body),
-  }, true);
+  return request<AuthResponse>(
+    "/auth/login",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+    true,
+  );
 }
 
 export async function getMe(): Promise<User> {
@@ -129,23 +139,21 @@ export async function logout(refreshToken: string): Promise<void> {
   });
 }
 
-// ── User endpoints ──────────────────────────────────────────────────────────
-
+// User endpoints
 export async function searchUsers(q: string): Promise<UserPublicInfo[]> {
-  return request<UserPublicInfo[]>(
-    `/users/search?q=${encodeURIComponent(q)}`
-  );
+  return request<UserPublicInfo[]>(`/users/search?q=${encodeURIComponent(q)}`);
 }
 
 export async function getPublicKey(userId: string): Promise<string> {
   if (publicKeyCache.has(userId)) return publicKeyCache.get(userId)!;
-  const data = await request<{ public_key: string }>(`/users/${userId}/public-key`);
+  const data = await request<{ public_key: string }>(
+    `/users/${userId}/public-key`,
+  );
   publicKeyCache.set(userId, data.public_key);
   return data.public_key;
 }
 
-// ── Conversation endpoints ──────────────────────────────────────────────────
-
+// Conversation endpoints
 export async function getConversations(): Promise<ConversationSummary[]> {
   return request<ConversationSummary[]>("/conversations");
 }
@@ -153,15 +161,14 @@ export async function getConversations(): Promise<ConversationSummary[]> {
 export async function getMessages(
   userId: string,
   limit = 50,
-  before?: string
+  before?: string,
 ): Promise<Message[]> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (before) params.set("before", before);
   return request<Message[]>(`/conversations/${userId}/messages?${params}`);
 }
 
-// ── Message endpoints ───────────────────────────────────────────────────────
-
+// Message endpoints
 export async function sendMessage(body: SendMessageRequest): Promise<Message> {
   return request<Message>("/messages", {
     method: "POST",
@@ -169,10 +176,10 @@ export async function sendMessage(body: SendMessageRequest): Promise<Message> {
   });
 }
 
-// ── WebSocket ───────────────────────────────────────────────────────────────
-
+// WebSocket
 export function getWebSocketUrl(): string | null {
   if (!accessToken) return null;
   const wsBase = BASE_URL.replace(/^http/, "ws");
   return `${wsBase}/ws?token=${accessToken}`;
 }
+
