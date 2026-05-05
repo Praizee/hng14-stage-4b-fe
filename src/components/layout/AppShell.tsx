@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCrypto } from "@/contexts/CryptoContext";
 import { ConversationsProvider } from "@/contexts/ConversationsContext";
@@ -9,8 +11,15 @@ import { UnlockScreen } from "./UnlockScreen";
 export function AppShell({ children }: { children: React.ReactNode }) {
   const { user, isLoading } = useAuth();
   const { privateKey } = useCrypto();
+  const router = useRouter();
 
-  if (isLoading) {
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.replace("/login");
+    }
+  }, [isLoading, user, router]);
+
+  if (isLoading || (!isLoading && !user)) {
     return (
       <div className="flex min-h-full items-center justify-center bg-zinc-950">
         <svg
