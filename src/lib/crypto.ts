@@ -2,7 +2,10 @@ import type { EncryptedPayload } from "@/types";
 
 // Base64 helpers
 export function bufferToBase64(buffer: ArrayBuffer): string {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  return btoa(binary);
 }
 
 export function base64ToBuffer(b64: string): ArrayBuffer {
@@ -73,26 +76,31 @@ async function deriveWrappingKey(
       hash: "SHA-256",
     },
     keyMaterial,
-    { name: "AES-KW", length: 256 },
+    { name: "AES-GCM", length: 256 },
     false,
-    ["wrapKey", "unwrapKey"],
+    ["encrypt", "decrypt"],
   );
 }
 
-// AES-KW wrap / unwrap
+// AES-GCM wrap / unwrap (works for any PKCS8 length — AES-KW requires multiples of 8 bytes)
 export async function wrapPrivateKey(
   privateKey: CryptoKey,
   password: string,
   saltB64: string,
 ): Promise<string> {
   const wrappingKey = await deriveWrappingKey(password, saltB64);
-  const wrapped = await crypto.subtle.wrapKey(
-    "pkcs8",
-    privateKey,
+  const pkcs8 = await crypto.subtle.exportKey("pkcs8", privateKey);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
     wrappingKey,
-    "AES-KW",
+    pkcs8,
   );
-  return bufferToBase64(wrapped);
+  // Prepend IV so unwrap can extract it: [12 bytes IV | ciphertext]
+  const combined = new Uint8Array(12 + ciphertext.byteLength);
+  combined.set(iv, 0);
+  combined.set(new Uint8Array(ciphertext), 12);
+  return bufferToBase64(combined.buffer);
 }
 
 export async function unwrapPrivateKey(
@@ -101,11 +109,17 @@ export async function unwrapPrivateKey(
   saltB64: string,
 ): Promise<CryptoKey> {
   const wrappingKey = await deriveWrappingKey(password, saltB64);
-  return crypto.subtle.unwrapKey(
-    "pkcs8",
-    base64ToBuffer(wrappedB64),
+  const combined = new Uint8Array(base64ToBuffer(wrappedB64));
+  const iv = combined.slice(0, 12);
+  const ciphertext = combined.slice(12);
+  const pkcs8 = await crypto.subtle.decrypt(
+    { name: "AES-GCM", iv },
     wrappingKey,
-    "AES-KW",
+    ciphertext,
+  );
+  return crypto.subtle.importKey(
+    "pkcs8",
+    pkcs8,
     { name: "RSA-OAEP", hash: "SHA-256" },
     true,
     ["decrypt"],

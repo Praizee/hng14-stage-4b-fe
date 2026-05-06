@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Toaster } from "sonner";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { CryptoProvider } from "@/contexts/CryptoContext";
 
@@ -19,6 +20,7 @@ export default function RootLayout({
         <AuthProvider>
           <CryptoProvider>{children}</CryptoProvider>
         </AuthProvider>
+        <Toaster theme="dark" richColors position="top-right" />
       </body>
     </html>
   );

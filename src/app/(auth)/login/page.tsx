@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { useAuth } from "@/contexts/AuthContext";
@@ -17,18 +18,15 @@ export default function LoginPage() {
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
     setLoading(true);
 
     try {
       const res = await api.login({ username: username.trim(), password });
 
-      // Unwrap private key from server-returned material using password
       await initKeys(
         res.user.wrapped_private_key,
         res.user.pbkdf2_salt,
@@ -36,7 +34,6 @@ export default function LoginPage() {
         res.user.public_key
       );
 
-      // Persist key material in IndexedDB for session restore
       await saveKeyMaterial(
         res.user.id,
         res.user.public_key,
@@ -47,7 +44,7 @@ export default function LoginPage() {
       await setUser(res.user, res.access_token, res.refresh_token);
       router.replace("/");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      toast.error(err instanceof Error ? err.message : "Login failed");
     } finally {
       setLoading(false);
     }
@@ -87,12 +84,6 @@ export default function LoginPage() {
           required
         />
       </div>
-
-      {error && (
-        <p className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-400">
-          {error}
-        </p>
-      )}
 
       <Button type="submit" loading={loading} className="w-full">
         Sign in
